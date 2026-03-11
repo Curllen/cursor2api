@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.5.3 (2026-03-11)
+
+### 🗜️ Schema 压缩 — 根治截断问题
+
+- **根本原因定位**：90 个工具的完整 JSON Schema 占用 ~135,000 chars，导致 Cursor API 输出预算仅 ~3,000 chars，Write/Edit 工具的 content 参数被严重截断
+- **compactSchema() 压缩**：将完整 JSON Schema 转为紧凑类型签名（如 `{file_path!: string, encoding?: utf-8|base64}`），输入体积降至 ~15,000 chars
+- **工具描述截断**：每个工具描述最多 200 chars，避免个别工具（如 Agent）的超长描述浪费 token
+- **效果**：输出预算从 ~3k 提升到 ~8k+ chars，Write 工具可一次写入完整文件
+
+### 🔧 JSON-String-Aware 解析器
+
+- **修复致命 Bug**：旧的 lazy regex `/```json[\s\S]*?```/g` 会在 JSON 字符串值内部的 ``` 处提前闭合，导致 Write/Edit 工具的 content 参数（如含 markdown 代码块的文档）被截断为仅前几行
+- **新实现**：手动扫描器跟踪 JSON 字符串状态（`"` 配对 + `\` 转义），只在字符串外部匹配闭合 ```
+- **截断恢复**：无闭合 ``` 的代码块也能通过 tolerantParse 恢复工具调用
+
+### ⚠️ 续写机制重写
+
+- **修复空响应问题**：旧实现只追加 assistant 消息，Cursor API 看到最后是 assistant 的消息后返回空响应
+- **新实现**：每次续写添加 user 引导消息 + 最后 300 chars 上下文锚点
+- **防膨胀**：每次基于原始消息快照重建，而非累积消息
+- **MAX_AUTO_CONTINUE** 从 4 提升至 6
+
+---
 ## v2.5.2 (2026-03-11)
 
 ### 🗜️ 移除上下文智能压缩 (Reverted)
