@@ -1,4 +1,4 @@
-# Cursor2API v2.5
+# Cursor2API v2.7
 
 将 Cursor 文档页免费 AI 对话接口代理转换为 **Anthropic Messages API** 和 **OpenAI Chat Completions API**，支持 **Claude Code** 和 **Cursor IDE** 使用。
 
@@ -24,19 +24,22 @@
 - **Anthropic Messages API 完整兼容** - `/v1/messages` 流式/非流式，直接对接 Claude Code
 - **OpenAI Chat Completions API 兼容** - `/v1/chat/completions`，对接 ChatBox / LobeChat 等客户端
 - **Cursor IDE Agent 模式适配** - `/v1/responses` 端点 + 扁平工具格式 + 增量流式工具调用
+- **🆕 API Token 鉴权** - 公网部署安全，支持 Bearer token / x-api-key 双模式，多 token 管理
+- **🆕 Thinking 支持** - 客户端驱动，Anthropic `thinking` block + OpenAI `reasoning_content`，模型名含 `thinking` 或传 `reasoning_effort` 即启用
+- **🆕 response_format 支持** - `json_object` / `json_schema` 格式输出，自动剥离 markdown 包装
+- **🆕 动态工具结果预算** - 根据上下文大小自动调整工具结果截断限制，替代固定 15K
+- **🆕 已知工具跳过描述** - 17 个常用工具不生成冗余描述，节省 ~30% 工具指令输入
+- **🆕 Vision 独立代理** - 图片 API 单独走代理，Cursor API 保持直连不受影响
+- **🆕 计费头清除** - 自动清除 `x-anthropic-billing-header` 防止注入警告
 - **工具参数自动修复** - 字段名映射 (`file_path` → `path`)、智能引号替换、模糊匹配修复
 - **多模态视觉降级处理** - 内置纯本地 CPU OCR 图片文字提取（零配置免 Key），或支持外接第三方免费视觉大模型 API 解释图片
-- **Cursor IDE 场景融合提示词注入** - 不覆盖模型身份，顺应 Cursor 内部角色设定
 - **全工具支持** - 无工具白名单限制，支持所有 MCP 工具和自定义扩展
-- **多层拒绝拦截** - 自动检测和抑制 Cursor 文档助手的拒绝行为（工具和非工具模式均生效）
+- **多层拒绝拦截** - 50+ 正则模式匹配拒绝文本（中英文），自动重试 + 认知重构绕过
 - **三层身份保护** - 身份探针拦截 + 拒绝重试 + 响应清洗，确保输出永远呈现 Claude 身份
-- **🆕 截断无缝续写** - Proxy 底层自动拼接被截断的工具响应（代码块/XML未闭合），防止工具调用在长输出中退化为纯文本，彻底代替粗暴的上下文压缩解决失忆问题。
-- **🆕 续写智能去重** - 模型续写时自动检测并移除与截断点重叠的重复内容，防止拼接后出现重复段落
-- **🆕 渐进式历史压缩** - 保留最近6条消息完整，仅截短早期消息超长文本，兼顾上下文完整性与输出空间
-- **🆕 Schema 压缩** - 工具定义从完整 JSON Schema (~135k chars) 压缩为紧凑类型签名 (~15k chars)，大幅提升 Cursor API 输出预算
-- **🆕 JSON 感知解析器** - 正确处理 Write/Edit 工具 content 中的嵌入式代码块，避免工具参数被 markdown ``` 标记截断
-- **连续同角色消息自动合并** - 满足 Anthropic API 交替要求，解决 Cursor IDE 发送格式兼容问题
-- **上下文清洗** - 自动清理历史对话中的权限拒绝和错误记忆
+- **截断无缝续写** - Proxy 底层自动拼接被截断的工具响应（最多 6 次），含智能去重
+- **渐进式历史压缩** - 保留最近 6 条消息完整，仅截短早期超长文本
+- **Schema 压缩** - 工具定义从完整 JSON Schema (~135k chars) 压缩为紧凑类型签名 (~15k chars)
+- **JSON 感知解析器** - 正确处理 JSON 中嵌入的代码块，五层容错解析
 - **Chrome TLS 指纹** - 模拟真实浏览器请求头
 - **SSE 流式传输** - 实时响应，工具参数 128 字节增量分块
 
@@ -51,10 +54,12 @@ npm install
 ### 2. 配置
 
 编辑 `config.yaml`：
+- `auth_tokens` - API 鉴权 token 列表（公网部署推荐配置，不配则全部放行）
 - `cursor_model` - 使用的模型（默认 `anthropic/claude-sonnet-4.6`）
-- `fingerprint.user_agent` - 浏览器 User-Agent（模拟 Chrome 请求）
-- `vision.enabled` - 开启视觉拦截 (`true` 发送图片前进行降级处理)。
-- `vision.mode` - 视觉模式。推荐 `ocr` (全自动零配置文字提取)。如需真视觉理解改为 `api` 并配置 `baseUrl` 和 `apiKey` 后接入 Gemini/OpenRouter 等。
+- `proxy` - 全局代理（可选，国内通常不需要）
+- `vision.enabled` - 开启视觉拦截
+- `vision.mode` - 视觉模式：`ocr`（免 Key）或 `api`（外接视觉模型）
+- `vision.proxy` - Vision 独立代理（不影响主请求速度）
 
 ### 3. 启动
 
@@ -84,14 +89,15 @@ OPENAI_BASE_URL=http://localhost:3010/v1
 ```
 cursor2api/
 ├── src/
-│   ├── index.ts            # 入口 + Express 服务 + 路由
-│   ├── config.ts           # 配置管理
-│   ├── types.ts            # 类型定义
+│   ├── index.ts            # 入口 + Express 服务 + 路由 + API 鉴权中间件
+│   ├── config.ts           # 配置管理（含 auth_tokens / vision.proxy）
+│   ├── types.ts            # 类型定义（含 thinking / authTokens）
 │   ├── cursor-client.ts    # Cursor API 客户端 + Chrome TLS 指纹
-│   ├── converter.ts        # 协议转换 + 提示词注入 + 上下文清洗
-│   ├── handler.ts          # Anthropic API 处理器 + 身份保护 + 拒绝拦截
-│   ├── openai-handler.ts   # OpenAI / Cursor IDE 兼容处理器
-│   ├── openai-types.ts     # OpenAI 类型定义
+│   ├── converter.ts        # 协议转换 + 提示词注入 + 上下文清洗 + 动态预算
+│   ├── handler.ts          # Anthropic API 处理器 + 身份保护 + 拒绝拦截 + Thinking
+│   ├── openai-handler.ts   # OpenAI / Cursor IDE 兼容处理器 + response_format + Thinking
+│   ├── openai-types.ts     # OpenAI 类型定义（含 response_format）
+│   ├── proxy-agent.ts      # 代理支持（全局 + Vision 独立代理）
 │   └── tool-fixer.ts       # 工具参数自动修复（字段映射 + 智能引号 + 模糊匹配）
 ├── test/
 │   ├── unit-tolerant-parse.mjs  # tolerantParse / parseToolCalls 单元测试
@@ -157,6 +163,18 @@ AI 按此格式输出 → 我们解析并转换为标准的 Anthropic `tool_use`
 | **L4: 响应清洗** | `handler.ts` | `sanitizeResponse()` 对所有输出做后处理，将 Cursor 身份引用替换为 Claude |
 
 ## 更新日志
+
+### v2.7.0 (2026-03-16) — API 鉴权 + Thinking + 动态预算 + response_format + Vision 独立代理
+
+**🔐 API Token 鉴权** — 新增 `auth_tokens`，支持 Bearer token / x-api-key 双模式鉴权，公网部署安全
+**🧠 Thinking 支持** — 客户端驱动：Anthropic `thinking` block / OpenAI `reasoning_content`
+**📊 动态工具结果预算** — `getToolResultBudget()` 替代固定 15K，按上下文动态调整
+**🔧 已知工具跳过描述** — 17 个常用工具省略描述，节省 ~30% 输入
+**🛡️ isTruncated 重写** — 消除反引号误判导致的无限重试
+**📦 response_format** — json_object / json_schema + markdown 自动剥离
+**🧹 计费头清除** — 清除 x-anthropic-billing-header 防注入警告
+**🌐 Vision 独立代理** — vision.proxy 单独走代理，主请求不受影响
+**🛡️ 新增拒绝模式** — 4 个 Cursor 新拒绝措辞
 
 ### v2.5.6 (2026-03-12) — 渐进式压缩 + 续写去重 + 非流式续写对齐 + Token 估算优化
 
