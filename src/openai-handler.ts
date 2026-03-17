@@ -35,6 +35,7 @@ import {
     isIdentityProbe,
     isToolCapabilityQuestion,
     buildRetryRequest,
+    extractThinking,
     CLAUDE_IDENTITY_RESPONSE,
     CLAUDE_TOOLS_RESPONSE,
     MAX_REFUSAL_RETRIES,
@@ -615,12 +616,12 @@ async function handleOpenAIStream(
         const thinkingEnabled = anthropicReq.thinking?.type === 'enabled';
         let reasoningContent: string | undefined;
         if (fullResponse.includes('<thinking>')) {
-            const thinkingMatch = fullResponse.match(/<thinking>([\s\S]*?)<\/thinking>/g);
-            if (thinkingMatch) {
+            const { thinkingContent: extracted, strippedText } = extractThinking(fullResponse);
+            if (extracted) {
                 if (thinkingEnabled) {
-                    reasoningContent = thinkingMatch.map(m => m.replace(/<\/?thinking>/g, '').trim()).join('\n\n');
+                    reasoningContent = extracted;
                 }
-                fullResponse = stripThinkingTags(fullResponse);
+                fullResponse = strippedText;
                 // thinking 剥离记录在详细日志中
             }
         }
@@ -819,14 +820,13 @@ async function handleOpenAINonStream(
     const thinkingEnabled = anthropicReq.thinking?.type === 'enabled';
     let reasoningContent: string | undefined;
     if (fullText.includes('<thinking>')) {
-        const thinkingMatch = fullText.match(/<thinking>([\s\S]*?)<\/thinking>/g);
-        if (thinkingMatch) {
+        const { thinkingContent: extracted, strippedText } = extractThinking(fullText);
+        if (extracted) {
             if (thinkingEnabled) {
-                reasoningContent = thinkingMatch.map(m => m.replace(/<\/?thinking>/g, '').trim()).join('\n\n');
+                reasoningContent = extracted;
             }
-            const stripped = fullText.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '').trim();
             // thinking 剥离记录
-            fullText = stripped;
+            fullText = strippedText;
         }
     }
 
@@ -841,7 +841,7 @@ async function handleOpenAINonStream(
             fullText = await sendCursorRequestFull(retryCursorReq);
             // 重试响应也需要先剥离 thinking
             if (fullText.includes('<thinking>')) {
-                fullText = fullText.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '').trim();
+                fullText = extractThinking(fullText).strippedText;
             }
             if (!shouldRetry()) break;
         }

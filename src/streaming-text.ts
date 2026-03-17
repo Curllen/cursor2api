@@ -37,10 +37,19 @@ const STREAM_START_BOUNDARY_RE = /[\n。！？.!?]/;
 
 /**
  * 剥离完整的 thinking 标签，返回可用于拒绝检测或最终文本处理的正文。
+ *
+ * ★ 使用 indexOf + lastIndexOf 而非非贪婪正则，防止 thinking 内容本身
+ *   包含 </thinking> 字面量时提前截断导致标签泄漏到正文。
  */
 export function stripThinkingTags(text: string): string {
-    if (!text) return text;
-    return text.replace(/<thinking>[\s\S]*?<\/thinking>\s*/g, '').trim();
+    if (!text || !text.includes(THINKING_OPEN)) return text;
+    const startIdx = text.indexOf(THINKING_OPEN);
+    const endIdx = text.lastIndexOf(THINKING_CLOSE);
+    if (endIdx > startIdx) {
+        return (text.slice(0, startIdx) + text.slice(endIdx + THINKING_CLOSE.length)).trim();
+    }
+    // 未闭合（流式截断）→ 剥离从 <thinking> 开始的全部内容
+    return text.slice(0, startIdx).trim();
 }
 
 /**
