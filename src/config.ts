@@ -89,6 +89,7 @@ function parseYamlConfig(defaults: AppConfig): { config: AppConfig; raw: Record<
                 descriptionMaxLength: typeof t.description_max_length === 'number' ? t.description_max_length : 0,
                 includeOnly: Array.isArray(t.include_only) ? t.include_only.map(String) : undefined,
                 exclude: Array.isArray(t.exclude) ? t.exclude.map(String) : undefined,
+                passthrough: t.passthrough === true,
             };
         }
         // ★ 响应内容清洗开关（默认关闭）
