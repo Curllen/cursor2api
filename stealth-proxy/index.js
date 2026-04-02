@@ -72,10 +72,11 @@ async function initBrowser() {
     challengeCount++;
 
     // ---- Worker 页面：代理 API 请求 ----
+    // cookie 已在 challenge 页面获取，worker 页面只需加载到 domcontentloaded 即可
     workerPage = await context.newPage();
     await workerPage.goto(CHALLENGE_URL, {
-        waitUntil: 'networkidle',
-        timeout: 30000,
+        waitUntil: 'domcontentloaded',
+        timeout: 60000,
     });
 
     // 注册流式回调（Node.js 侧接收浏览器内 fetch 的数据块）
